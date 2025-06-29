@@ -20,36 +20,46 @@ export const removeVietnameseDiacritics = (str: string): string => {
   return str.replace(/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/g, (match) => diacriticsMap[match] || match);
 };
 
-// FIXED: Improved slug generation to match server-side logic
+// CRITICAL: This MUST match the server-side createSeriesSlug function exactly
 export const createSlug = (title: string): string => {
   if (!title) return '';
   
-  return removeVietnameseDiacritics(title)
+  console.log(`🔧 Creating slug for: "${title}"`);
+  
+  const slug = removeVietnameseDiacritics(title)
     .toLowerCase()
-    .trim()
     .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
     .replace(/\s+/g, '-') // Replace spaces with hyphens
     .replace(/-+/g, '-') // Replace multiple hyphens with single
+    .trim()
     .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
+  
+  console.log(`🔧 Generated slug: "${slug}"`);
+  return slug;
 };
 
 // NEW: Function to find series by slug from database
 export const findSeriesBySlug = (seriesList: any[], targetSlug: string): any | null => {
   if (!targetSlug || !seriesList) return null;
   
-  console.log(`🔍 Finding series by slug: "${targetSlug}"`);
+  const normalizedTarget = targetSlug.toLowerCase().trim();
+  console.log(`🔍 Finding series by slug: "${normalizedTarget}"`);
+  console.log(`📊 Searching through ${seriesList.length} series`);
   
   for (const series of seriesList) {
     const generatedSlug = createSlug(series.title);
-    console.log(`🔗 Checking: "${series.title}" → "${generatedSlug}"`);
+    const match = generatedSlug === normalizedTarget;
     
-    if (generatedSlug.toLowerCase() === targetSlug.toLowerCase()) {
-      console.log(`✅ Found match: ${series.title}`);
+    console.log(`🔗 "${series.title}" → "${generatedSlug}" ${match ? '✅ MATCH!' : '❌'}`);
+    
+    if (match) {
+      console.log(`✅ Found series: ${series.title} (ID: ${series.id})`);
       return series;
     }
   }
   
-  console.log(`❌ No series found for slug: "${targetSlug}"`);
+  console.log(`❌ No series found for slug: "${normalizedTarget}"`);
+  console.log(`🔍 Available slugs:`, seriesList.map(s => createSlug(s.title)));
   return null;
 };
 
@@ -59,20 +69,29 @@ export const normalizeSlug = (slug: string): string => {
   return slug.toLowerCase().trim();
 };
 
+// NEW: Test slug against known video path
+export const testSlugAgainstVideoPath = (title: string, expectedPath: string) => {
+  const generatedSlug = createSlug(title);
+  console.log(`🧪 Testing: "${title}"`);
+  console.log(`🔧 Generated slug: "${generatedSlug}"`);
+  console.log(`📁 Expected path: "${expectedPath}"`);
+  console.log(`✅ Match: ${expectedPath.includes(generatedSlug)}`);
+  return expectedPath.includes(generatedSlug);
+};
+
 // Test function to verify slug generation
 export const testSlugGeneration = () => {
   const testCases = [
-    'Phàm Nhân Tu Tiên',
-    'Đấu Phá Thương Khung', 
-    'Đấu La Đại Lục',
-    'Hoàn Mỹ Thế Giới',
-    'Thần Ấn Vương Tọa'
+    { title: 'Phàm Nhân Tu Tiên', expectedSlug: 'pham-nhan-tu-tien' },
+    { title: 'Đấu Phá Thương Khung', expectedSlug: 'dau-pha-thuong-khung' },
+    { title: 'Đấu La Đại Lục', expectedSlug: 'dau-la-dai-luc' }
   ];
 
   console.log('🧪 Testing slug generation:');
-  testCases.forEach(title => {
-    const slug = createSlug(title);
-    console.log(`"${title}" → "${slug}"`);
+  testCases.forEach(({ title, expectedSlug }) => {
+    const generatedSlug = createSlug(title);
+    const match = generatedSlug === expectedSlug;
+    console.log(`"${title}" → "${generatedSlug}" ${match ? '✅' : '❌ Expected: ' + expectedSlug}`);
   });
 };
 

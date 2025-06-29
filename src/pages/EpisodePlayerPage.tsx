@@ -5,7 +5,7 @@ import { Series, Episode } from '../types';
 import HLSVideoPlayer from '../components/HLSVideoPlayer';
 import VideoUploadModal from '../components/VideoUploadModal';
 import { useAuth } from '../contexts/AuthContext';
-import { createSlug, findSeriesBySlug, normalizeSlug } from '../utils/slugUtils';
+import { createSlug, findSeriesBySlug, normalizeSlug, testSlugAgainstVideoPath } from '../utils/slugUtils';
 
 const EpisodePlayerPage: React.FC = () => {
   const { seriesSlug, episodeNumber } = useParams<{ seriesSlug: string; episodeNumber: string }>();
@@ -49,6 +49,10 @@ const EpisodePlayerPage: React.FC = () => {
 
       const normalizedSlug = normalizeSlug(seriesSlug || '');
       console.log(`🔍 EpisodePlayerPage: Looking for series with slug: "${normalizedSlug}", episode: ${episodeNumber}`);
+      
+      // CRITICAL: Test against known video path
+      console.log(`🧪 Testing slug against known video path:`);
+      testSlugAgainstVideoPath('Phàm Nhân Tu Tiên', 'pham-nhan-tu-tien/tap-01');
 
       // Get all series from database
       const response = await fetch('http://localhost:3001/api/series');
@@ -73,7 +77,9 @@ const EpisodePlayerPage: React.FC = () => {
             searchSlug: normalizedSlug,
             searchEpisode: episodeNumber,
             availableSeries: seriesWithSlugs,
-            totalSeries: data.series.length
+            totalSeries: data.series.length,
+            knownVideoPath: 'pham-nhan-tu-tien/tap-01',
+            expectedSlug: 'pham-nhan-tu-tien'
           });
 
           console.error(`❌ No series found for slug: "${normalizedSlug}"`);
@@ -158,8 +164,10 @@ const EpisodePlayerPage: React.FC = () => {
         console.log(`✅ Found episode ${epNum}: "${episode.title}"`);
         setCurrentEpisode(episode);
         
-        // FIXED: Load video data using the correct series slug
-        loadVideoData(normalizedSlug, epNum);
+        // CRITICAL: Load video data using the exact slug that matches server
+        const serverSlug = createSlug(foundSeries.title);
+        console.log(`🎬 Loading video with server slug: "${serverSlug}"`);
+        loadVideoData(serverSlug, epNum);
       } else {
         console.error('❌ API Error:', data.error);
         setError('Không thể tải dữ liệu series từ database');
@@ -172,7 +180,7 @@ const EpisodePlayerPage: React.FC = () => {
     }
   };
 
-  // FIXED: Load video data using series slug and episode number
+  // CRITICAL: Load video data using exact slug matching
   const loadVideoData = useCallback(async (slug: string, epNumber: number) => {
     const videoKey = `${slug}-${epNumber}`;
     
@@ -186,8 +194,9 @@ const EpisodePlayerPage: React.FC = () => {
     
     try {
       console.log(`🔍 Loading video for series slug "${slug}" episode ${epNumber}`);
+      console.log(`🌐 API URL: http://localhost:3001/api/videos/${slug}/${epNumber}`);
       
-      // FIXED: Use the correct API endpoint that matches server
+      // CRITICAL: Use the exact API endpoint that matches server
       const response = await fetch(`http://localhost:3001/api/videos/${slug}/${epNumber}`);
       const data = await response.json();
       
@@ -206,11 +215,14 @@ const EpisodePlayerPage: React.FC = () => {
         };
         
         console.log('🎬 Final video data:', newVideoData);
+        console.log(`🌐 HLS URL: ${newVideoData.hlsUrl}`);
         setVideoData(newVideoData);
         loadedVideoRef.current = videoKey;
         
       } else {
         console.log('❌ No video found:', data.error);
+        console.log(`🔍 Tried URL: http://localhost:3001/api/videos/${slug}/${epNumber}`);
+        console.log(`📁 Expected server path: segments/${slug}/tap-${epNumber.toString().padStart(2, '0')}/`);
         setVideoData(null);
         loadedVideoRef.current = null;
       }
@@ -324,8 +336,9 @@ const EpisodePlayerPage: React.FC = () => {
       duration: uploadedVideoData.duration,
       status: 'completed'
     });
-    if (seriesSlug && currentEpisode) {
-      loadedVideoRef.current = `${normalizeSlug(seriesSlug)}-${currentEpisode.number}`;
+    if (series && currentEpisode) {
+      const slug = createSlug(series.title);
+      loadedVideoRef.current = `${slug}-${currentEpisode.number}`;
     }
   };
 
@@ -384,7 +397,7 @@ const EpisodePlayerPage: React.FC = () => {
           <h2 className="text-2xl font-bold text-white mb-4">Trang không tồn tại</h2>
           <p className="text-xl text-gray-300 mb-4">Xin lỗi, trang bạn đang tìm kiếm không tồn tại hoặc đã bị di chuyển.</p>
           
-          {/* Debug Information */}
+          {/* Enhanced Debug Information */}
           {debugInfo && (
             <div className="bg-gray-800 rounded-lg p-6 mb-8 text-left">
               <h3 className="text-white font-semibold mb-4">🔍 Debug Information:</h3>
@@ -397,6 +410,12 @@ const EpisodePlayerPage: React.FC = () => {
                 </p>
                 <p className="text-gray-300">
                   <span className="text-blue-400">Tổng series trong DB:</span> {debugInfo.totalSeries}
+                </p>
+                <p className="text-gray-300">
+                  <span className="text-green-400">Video path đã biết:</span> {debugInfo.knownVideoPath}
+                </p>
+                <p className="text-gray-300">
+                  <span className="text-green-400">Slug mong đợi:</span> {debugInfo.expectedSlug}
                 </p>
                 <p className="text-gray-300">
                   <span className="text-red-400">Lỗi:</span> {error}
@@ -503,7 +522,8 @@ const EpisodePlayerPage: React.FC = () => {
               <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
               <p className="text-white text-xl">Đang kiểm tra video...</p>
               <p className="text-gray-300 text-sm mt-2">Tìm kiếm video cho tập {episodeNumber}...</p>
-              <p className="text-gray-400 text-xs mt-1">FIXED: Using normalized slug "{normalizeSlug(seriesSlug || '')}"</p>
+              <p className="text-gray-400 text-xs mt-1">Slug: "{normalizeSlug(seriesSlug || '')}"</p>
+              <p className="text-gray-400 text-xs mt-1">Expected path: segments/{normalizeSlug(seriesSlug || '')}/tap-{episodeNumber?.padStart(2, '0')}/</p>
             </div>
           </div>
         ) : loadError ? (
@@ -511,12 +531,20 @@ const EpisodePlayerPage: React.FC = () => {
             <div className="text-center max-w-2xl mx-auto p-8">
               <div className="text-red-400 text-6xl mb-4">⚠️</div>
               <h1 className="text-4xl font-bold text-white mb-4">Lỗi tải video</h1>
-              <p className="text-xl text-gray-300 mb-8">{loadError}</p>
+              <p className="text-xl text-gray-300 mb-4">{loadError}</p>
+              <div className="bg-gray-800 rounded-lg p-4 mb-6 text-left">
+                <h4 className="text-white font-semibold mb-2">🔍 Debug Info:</h4>
+                <p className="text-gray-300 text-sm">Slug: {normalizeSlug(seriesSlug || '')}</p>
+                <p className="text-gray-300 text-sm">Episode: {episodeNumber}</p>
+                <p className="text-gray-300 text-sm">API URL: /api/videos/{normalizeSlug(seriesSlug || '')}/{episodeNumber}</p>
+                <p className="text-gray-300 text-sm">Expected server path: segments/{normalizeSlug(seriesSlug || '')}/tap-{episodeNumber?.padStart(2, '0')}/</p>
+              </div>
               <button
                 onClick={() => {
                   loadedVideoRef.current = null;
-                  if (seriesSlug && currentEpisode) {
-                    loadVideoData(normalizeSlug(seriesSlug), currentEpisode.number);
+                  if (series && currentEpisode) {
+                    const slug = createSlug(series.title);
+                    loadVideoData(slug, currentEpisode.number);
                   }
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"
@@ -553,12 +581,19 @@ const EpisodePlayerPage: React.FC = () => {
               <h2 className="text-2xl md:text-3xl text-blue-300 mb-8">
                 {currentEpisode.titleVietnamese}
               </h2>
-              <p className="text-xl text-gray-300 mb-8">
+              <p className="text-xl text-gray-300 mb-4">
                 {canUpload 
                   ? "Chưa có video cho tập này. Tải video lên để xem!" 
                   : "Video chưa có sẵn. Vui lòng quay lại sau."
                 }
               </p>
+              <div className="bg-gray-800 rounded-lg p-4 mb-6 text-left">
+                <h4 className="text-white font-semibold mb-2">🔍 Debug Info:</h4>
+                <p className="text-gray-300 text-sm">Series: {series.title}</p>
+                <p className="text-gray-300 text-sm">Slug: {createSlug(series.title)}</p>
+                <p className="text-gray-300 text-sm">Episode: {currentEpisode.number}</p>
+                <p className="text-gray-300 text-sm">Expected path: segments/{createSlug(series.title)}/tap-{currentEpisode.number.toString().padStart(2, '0')}/</p>
+              </div>
               {canUpload && (
                 <button
                   onClick={() => setIsUploadModalOpen(true)}
