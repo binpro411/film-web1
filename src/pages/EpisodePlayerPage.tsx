@@ -5,11 +5,13 @@ import { Series, Episode } from '../types';
 import HLSVideoPlayer from '../components/HLSVideoPlayer';
 import VideoUploadModal from '../components/VideoUploadModal';
 import { useAuth } from '../contexts/AuthContext';
-import { createSlug, findSeriesBySlug, normalizeSlug, testSlugAgainstVideoPath } from '../utils/slugUtils';
+import { createSlug, findSeriesBySlug, normalizeSlug } from '../utils/slugUtils';
 
 const EpisodePlayerPage: React.FC = () => {
   const { seriesSlug, episodeNumber } = useParams<{ seriesSlug: string; episodeNumber: string }>();
   const navigate = useNavigate();
+  
+  console.log(`🎬 EpisodePlayerPage MOUNTED with params:`, { seriesSlug, episodeNumber });
   
   const [series, setSeries] = useState<Series | null>(null);
   const [currentEpisode, setCurrentEpisode] = useState<Episode | null>(null);
@@ -35,10 +37,15 @@ const EpisodePlayerPage: React.FC = () => {
   const isLoadingRef = useRef(false);
   const resumePromptCheckedRef = useRef(false);
 
-  // Load series and episode data
+  // CRITICAL: Load series and episode data when component mounts
   useEffect(() => {
+    console.log(`🔄 EpisodePlayerPage useEffect triggered:`, { seriesSlug, episodeNumber });
     if (seriesSlug && episodeNumber) {
       loadSeriesAndEpisodeData();
+    } else {
+      console.error('❌ Missing URL params:', { seriesSlug, episodeNumber });
+      setError('URL không hợp lệ - thiếu thông tin series hoặc episode');
+      setIsLoading(false);
     }
   }, [seriesSlug, episodeNumber]);
 
@@ -49,14 +56,13 @@ const EpisodePlayerPage: React.FC = () => {
 
       const normalizedSlug = normalizeSlug(seriesSlug || '');
       console.log(`🔍 EpisodePlayerPage: Looking for series with slug: "${normalizedSlug}", episode: ${episodeNumber}`);
-      
-      // CRITICAL: Test against known video path
-      console.log(`🧪 Testing slug against known video path:`);
-      testSlugAgainstVideoPath('Phàm Nhân Tu Tiên', 'pham-nhan-tu-tien/tap-01');
 
       // Get all series from database
+      console.log('📡 Fetching series from database...');
       const response = await fetch('http://localhost:3001/api/series');
       const data = await response.json();
+      
+      console.log('📊 Series API Response:', { success: data.success, count: data.series?.length });
       
       if (data.success) {
         console.log('📊 Available series from database:', data.series.length);
@@ -94,7 +100,7 @@ const EpisodePlayerPage: React.FC = () => {
         const episodesResponse = await fetch(`http://localhost:3001/api/series/${foundSeries.id}/episodes`);
         const episodesData = await episodesResponse.json();
         
-        console.log('📺 Episodes API Response:', episodesData);
+        console.log('📺 Episodes API Response:', { success: episodesData.success, count: episodesData.episodes?.length });
         
         const episodes: Episode[] = episodesData.success ? episodesData.episodes.map((ep: any) => ({
           id: ep.id,
@@ -151,6 +157,7 @@ const EpisodePlayerPage: React.FC = () => {
         // Find current episode
         const epNum = parseInt(episodeNumber || '1');
         console.log(`🔍 Looking for episode number: ${epNum}`);
+        console.log(`📺 Available episodes:`, episodes.map(ep => ({ number: ep.number, title: ep.title })));
         
         const episode = episodes.find(ep => ep.number === epNum);
         
@@ -185,6 +192,7 @@ const EpisodePlayerPage: React.FC = () => {
     const videoKey = `${slug}-${epNumber}`;
     
     if (loadedVideoRef.current === videoKey || isLoadingRef.current) {
+      console.log(`⏭️ Skipping video load - already loaded or loading: ${videoKey}`);
       return;
     }
 
@@ -194,35 +202,57 @@ const EpisodePlayerPage: React.FC = () => {
     
     try {
       console.log(`🔍 Loading video for series slug "${slug}" episode ${epNumber}`);
-      console.log(`🌐 API URL: http://localhost:3001/api/videos/${slug}/${epNumber}`);
       
-      // CRITICAL: Use the exact API endpoint that matches server
-      const response = await fetch(`http://localhost:3001/api/videos/${slug}/${epNumber}`);
-      const data = await response.json();
+      // CRITICAL: Test multiple API endpoints to find the right one
+      const apiUrls = [
+        `http://localhost:3001/api/videos/${slug}/${epNumber}`,
+        `http://localhost:3001/api/video/${slug}/${epNumber}`,
+        `http://localhost:3001/api/series/${slug}/episode/${epNumber}/video`
+      ];
       
-      console.log('📹 Video API Response:', data);
+      let videoFound = false;
+      let lastError = '';
       
-      if (data.success) {
-        console.log('✅ Video data loaded:', data.video);
-        
-        const newVideoData = {
-          id: data.video.id,
-          title: data.video.title,
-          hlsUrl: `http://localhost:3001${data.video.hlsUrl}`,
-          duration: data.video.duration,
-          status: data.video.status,
-          totalSegments: data.video.totalSegments
-        };
-        
-        console.log('🎬 Final video data:', newVideoData);
-        console.log(`🌐 HLS URL: ${newVideoData.hlsUrl}`);
-        setVideoData(newVideoData);
-        loadedVideoRef.current = videoKey;
-        
-      } else {
-        console.log('❌ No video found:', data.error);
-        console.log(`🔍 Tried URL: http://localhost:3001/api/videos/${slug}/${epNumber}`);
+      for (const apiUrl of apiUrls) {
+        try {
+          console.log(`🌐 Trying API URL: ${apiUrl}`);
+          const response = await fetch(apiUrl);
+          const data = await response.json();
+          
+          console.log(`📡 API Response from ${apiUrl}:`, { success: data.success, error: data.error });
+          
+          if (data.success && data.video) {
+            console.log('✅ Video data loaded:', data.video);
+            
+            const newVideoData = {
+              id: data.video.id,
+              title: data.video.title,
+              hlsUrl: `http://localhost:3001${data.video.hlsUrl}`,
+              duration: data.video.duration,
+              status: data.video.status,
+              totalSegments: data.video.totalSegments
+            };
+            
+            console.log('🎬 Final video data:', newVideoData);
+            console.log(`🌐 HLS URL: ${newVideoData.hlsUrl}`);
+            setVideoData(newVideoData);
+            loadedVideoRef.current = videoKey;
+            videoFound = true;
+            break;
+          } else {
+            lastError = data.error || 'Unknown error';
+          }
+        } catch (fetchError) {
+          console.log(`❌ Fetch error for ${apiUrl}:`, fetchError);
+          lastError = `Network error: ${fetchError}`;
+        }
+      }
+      
+      if (!videoFound) {
+        console.log('❌ No video found from any API endpoint');
+        console.log(`🔍 Last error: ${lastError}`);
         console.log(`📁 Expected server path: segments/${slug}/tap-${epNumber.toString().padStart(2, '0')}/`);
+        console.log(`🎯 Known working path: segments/pham-nhan-tu-tien/tap-01/`);
         setVideoData(null);
         loadedVideoRef.current = null;
       }
@@ -375,6 +405,14 @@ const EpisodePlayerPage: React.FC = () => {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // CRITICAL: Add component mount/unmount logging
+  useEffect(() => {
+    console.log('🎬 EpisodePlayerPage MOUNTED');
+    return () => {
+      console.log('🎬 EpisodePlayerPage UNMOUNTED');
+    };
+  }, []);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -383,6 +421,11 @@ const EpisodePlayerPage: React.FC = () => {
           <p className="text-white text-xl">Đang tải episode...</p>
           <p className="text-gray-400 text-sm mt-2">Slug: {seriesSlug}, Episode: {episodeNumber}</p>
           <p className="text-gray-400 text-xs mt-1">Đang kết nối database...</p>
+          <div className="bg-gray-800 rounded-lg p-4 mt-4 text-left max-w-md">
+            <h4 className="text-white font-semibold mb-2">🔍 Debug Info:</h4>
+            <p className="text-gray-300 text-xs">URL Params: {JSON.stringify({ seriesSlug, episodeNumber })}</p>
+            <p className="text-gray-300 text-xs">Component State: Loading</p>
+          </div>
         </div>
       </div>
     );
@@ -522,8 +565,13 @@ const EpisodePlayerPage: React.FC = () => {
               <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
               <p className="text-white text-xl">Đang kiểm tra video...</p>
               <p className="text-gray-300 text-sm mt-2">Tìm kiếm video cho tập {episodeNumber}...</p>
-              <p className="text-gray-400 text-xs mt-1">Slug: "{normalizeSlug(seriesSlug || '')}"</p>
-              <p className="text-gray-400 text-xs mt-1">Expected path: segments/{normalizeSlug(seriesSlug || '')}/tap-{episodeNumber?.padStart(2, '0')}/</p>
+              <div className="bg-gray-800 rounded-lg p-4 mt-4 text-left max-w-md">
+                <h4 className="text-white font-semibold mb-2">🔍 Debug Info:</h4>
+                <p className="text-gray-300 text-xs">Slug: {normalizeSlug(seriesSlug || '')}</p>
+                <p className="text-gray-300 text-xs">Episode: {episodeNumber}</p>
+                <p className="text-gray-300 text-xs">Expected path: segments/{normalizeSlug(seriesSlug || '')}/tap-{episodeNumber?.padStart(2, '0')}/</p>
+                <p className="text-gray-300 text-xs">Known working: segments/pham-nhan-tu-tien/tap-01/</p>
+              </div>
             </div>
           </div>
         ) : loadError ? (
@@ -536,8 +584,14 @@ const EpisodePlayerPage: React.FC = () => {
                 <h4 className="text-white font-semibold mb-2">🔍 Debug Info:</h4>
                 <p className="text-gray-300 text-sm">Slug: {normalizeSlug(seriesSlug || '')}</p>
                 <p className="text-gray-300 text-sm">Episode: {episodeNumber}</p>
-                <p className="text-gray-300 text-sm">API URL: /api/videos/{normalizeSlug(seriesSlug || '')}/{episodeNumber}</p>
-                <p className="text-gray-300 text-sm">Expected server path: segments/{normalizeSlug(seriesSlug || '')}/tap-{episodeNumber?.padStart(2, '0')}/</p>
+                <p className="text-gray-300 text-sm">API URLs tested:</p>
+                <ul className="text-gray-400 text-xs ml-4 mt-1">
+                  <li>• /api/videos/{normalizeSlug(seriesSlug || '')}/{episodeNumber}</li>
+                  <li>• /api/video/{normalizeSlug(seriesSlug || '')}/{episodeNumber}</li>
+                  <li>• /api/series/{normalizeSlug(seriesSlug || '')}/episode/{episodeNumber}/video</li>
+                </ul>
+                <p className="text-gray-300 text-sm mt-2">Expected server path: segments/{normalizeSlug(seriesSlug || '')}/tap-{episodeNumber?.padStart(2, '0')}/</p>
+                <p className="text-green-400 text-sm">Known working path: segments/pham-nhan-tu-tien/tap-01/</p>
               </div>
               <button
                 onClick={() => {
@@ -593,6 +647,7 @@ const EpisodePlayerPage: React.FC = () => {
                 <p className="text-gray-300 text-sm">Slug: {createSlug(series.title)}</p>
                 <p className="text-gray-300 text-sm">Episode: {currentEpisode.number}</p>
                 <p className="text-gray-300 text-sm">Expected path: segments/{createSlug(series.title)}/tap-{currentEpisode.number.toString().padStart(2, '0')}/</p>
+                <p className="text-green-400 text-sm">Known working: segments/pham-nhan-tu-tien/tap-01/</p>
               </div>
               {canUpload && (
                 <button
