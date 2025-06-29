@@ -20,21 +20,50 @@ export const removeVietnameseDiacritics = (str: string): string => {
   return str.replace(/[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ]/g, (match) => diacriticsMap[match] || match);
 };
 
+// FIXED: Improved slug generation to match server-side logic
 export const createSlug = (title: string): string => {
+  if (!title) return '';
+  
   return removeVietnameseDiacritics(title)
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '') // Remove special characters but keep Vietnamese converted letters
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
     .replace(/\s+/g, '-') // Replace spaces with hyphens
     .replace(/-+/g, '-') // Replace multiple hyphens with single
-    .trim()
     .replace(/^-+|-+$/g, ''); // Remove leading/trailing hyphens
+};
+
+// NEW: Function to find series by slug from database
+export const findSeriesBySlug = (seriesList: any[], targetSlug: string): any | null => {
+  if (!targetSlug || !seriesList) return null;
+  
+  console.log(`🔍 Finding series by slug: "${targetSlug}"`);
+  
+  for (const series of seriesList) {
+    const generatedSlug = createSlug(series.title);
+    console.log(`🔗 Checking: "${series.title}" → "${generatedSlug}"`);
+    
+    if (generatedSlug.toLowerCase() === targetSlug.toLowerCase()) {
+      console.log(`✅ Found match: ${series.title}`);
+      return series;
+    }
+  }
+  
+  console.log(`❌ No series found for slug: "${targetSlug}"`);
+  return null;
+};
+
+// NEW: Function to validate and normalize slug
+export const normalizeSlug = (slug: string): string => {
+  if (!slug) return '';
+  return slug.toLowerCase().trim();
 };
 
 // Test function to verify slug generation
 export const testSlugGeneration = () => {
   const testCases = [
     'Phàm Nhân Tu Tiên',
-    'Đấu Phá Thương Khung',
+    'Đấu Phá Thương Khung', 
     'Đấu La Đại Lục',
     'Hoàn Mỹ Thế Giới',
     'Thần Ấn Vương Tọa'
@@ -44,5 +73,14 @@ export const testSlugGeneration = () => {
   testCases.forEach(title => {
     const slug = createSlug(title);
     console.log(`"${title}" → "${slug}"`);
+  });
+};
+
+// NEW: Debug function to check slug consistency
+export const debugSlugMapping = (seriesList: any[]) => {
+  console.log('🔍 Debug: Series slug mapping');
+  seriesList.forEach((series, index) => {
+    const slug = createSlug(series.title);
+    console.log(`${index + 1}. "${series.title}" → "${slug}" (ID: ${series.id})`);
   });
 };

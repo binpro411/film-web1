@@ -5,7 +5,7 @@ import { Series, Episode } from '../types';
 import HLSVideoPlayer from '../components/HLSVideoPlayer';
 import VideoUploadModal from '../components/VideoUploadModal';
 import { useAuth } from '../contexts/AuthContext';
-import { createSlug } from '../utils/slugUtils';
+import { createSlug, findSeriesBySlug, normalizeSlug } from '../utils/slugUtils';
 
 const EpisodePlayerPage: React.FC = () => {
   const { seriesSlug, episodeNumber } = useParams<{ seriesSlug: string; episodeNumber: string }>();
@@ -47,48 +47,37 @@ const EpisodePlayerPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      console.log(`🔍 EpisodePlayerPage: Looking for series with slug: "${seriesSlug}", episode: ${episodeNumber}`);
+      const normalizedSlug = normalizeSlug(seriesSlug || '');
+      console.log(`🔍 EpisodePlayerPage: Looking for series with slug: "${normalizedSlug}", episode: ${episodeNumber}`);
 
       // Get all series from database
       const response = await fetch('http://localhost:3001/api/series');
       const data = await response.json();
       
-      console.log('📊 API Response:', data);
-      
       if (data.success) {
         console.log('📊 Available series from database:', data.series.length);
         
-        // Debug: Show all series with their generated slugs
-        const seriesWithSlugs = data.series.map((s: any) => {
-          const generatedSlug = createSlug(s.title);
-          console.log(`🔗 Series: "${s.title}" → slug: "${generatedSlug}"`);
-          return {
-            id: s.id,
-            title: s.title,
-            slug: generatedSlug,
-            originalData: s
-          };
-        });
-
-        setDebugInfo({
-          searchSlug: seriesSlug,
-          searchEpisode: episodeNumber,
-          availableSeries: seriesWithSlugs,
-          totalSeries: data.series.length
-        });
-
-        // Find series by slug - CASE INSENSITIVE
-        const foundSeries = data.series.find((s: any) => {
-          const generatedSlug = createSlug(s.title);
-          const match = generatedSlug.toLowerCase() === seriesSlug?.toLowerCase();
-          console.log(`🔗 Comparing "${generatedSlug}" with "${seriesSlug}" → ${match ? '✅ MATCH' : '❌ NO MATCH'}`);
-          return match;
-        });
+        // FIXED: Use improved slug finding function
+        const foundSeries = findSeriesBySlug(data.series, normalizedSlug);
 
         if (!foundSeries) {
-          console.error(`❌ No series found for slug: "${seriesSlug}"`);
-          console.log('🔍 Available slugs:', seriesWithSlugs.map(s => s.slug));
-          setError(`Series không tồn tại. Slug tìm kiếm: "${seriesSlug}"`);
+          // Create debug info for troubleshooting
+          const seriesWithSlugs = data.series.map((s: any) => ({
+            id: s.id,
+            title: s.title,
+            slug: createSlug(s.title),
+            originalData: s
+          }));
+
+          setDebugInfo({
+            searchSlug: normalizedSlug,
+            searchEpisode: episodeNumber,
+            availableSeries: seriesWithSlugs,
+            totalSeries: data.series.length
+          });
+
+          console.error(`❌ No series found for slug: "${normalizedSlug}"`);
+          setError(`Series không tồn tại. Slug tìm kiếm: "${normalizedSlug}"`);
           return;
         }
 
@@ -154,9 +143,8 @@ const EpisodePlayerPage: React.FC = () => {
         setSeries(seriesData);
 
         // Find current episode
-        const epNum = parseInt(episodeNumber);
+        const epNum = parseInt(episodeNumber || '1');
         console.log(`🔍 Looking for episode number: ${epNum}`);
-        console.log(`📺 Available episodes:`, episodes.map(ep => ({ number: ep.number, title: ep.title })));
         
         const episode = episodes.find(ep => ep.number === epNum);
         
@@ -170,8 +158,8 @@ const EpisodePlayerPage: React.FC = () => {
         console.log(`✅ Found episode ${epNum}: "${episode.title}"`);
         setCurrentEpisode(episode);
         
-        // FIXED: Load video data using series slug instead of ID
-        loadVideoData(seriesSlug, epNum);
+        // FIXED: Load video data using the correct series slug
+        loadVideoData(normalizedSlug, epNum);
       } else {
         console.error('❌ API Error:', data.error);
         setError('Không thể tải dữ liệu series từ database');
@@ -337,7 +325,7 @@ const EpisodePlayerPage: React.FC = () => {
       status: 'completed'
     });
     if (seriesSlug && currentEpisode) {
-      loadedVideoRef.current = `${seriesSlug}-${currentEpisode.number}`;
+      loadedVideoRef.current = `${normalizeSlug(seriesSlug)}-${currentEpisode.number}`;
     }
   };
 
@@ -515,7 +503,7 @@ const EpisodePlayerPage: React.FC = () => {
               <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
               <p className="text-white text-xl">Đang kiểm tra video...</p>
               <p className="text-gray-300 text-sm mt-2">Tìm kiếm video cho tập {episodeNumber}...</p>
-              <p className="text-gray-400 text-xs mt-1">FIXED: Using series slug "{seriesSlug}"</p>
+              <p className="text-gray-400 text-xs mt-1">FIXED: Using normalized slug "{normalizeSlug(seriesSlug || '')}"</p>
             </div>
           </div>
         ) : loadError ? (
@@ -528,7 +516,7 @@ const EpisodePlayerPage: React.FC = () => {
                 onClick={() => {
                   loadedVideoRef.current = null;
                   if (seriesSlug && currentEpisode) {
-                    loadVideoData(seriesSlug, currentEpisode.number);
+                    loadVideoData(normalizeSlug(seriesSlug), currentEpisode.number);
                   }
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 rounded-lg font-semibold transition-colors"

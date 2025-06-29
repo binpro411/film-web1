@@ -5,7 +5,7 @@ import { Series, Episode } from '../types';
 import Header from '../components/Header';
 import EpisodeGrid from '../components/EpisodeGrid';
 import Footer from '../components/Footer';
-import { createSlug } from '../utils/slugUtils';
+import { createSlug, findSeriesBySlug, normalizeSlug } from '../utils/slugUtils';
 
 const SeriesDetailPage: React.FC = () => {
   const { seriesSlug } = useParams<{ seriesSlug: string }>();
@@ -29,7 +29,8 @@ const SeriesDetailPage: React.FC = () => {
       setIsLoading(true);
       setError(null);
 
-      console.log(`🔍 SeriesDetailPage: Looking for series with slug: "${seriesSlug}"`);
+      const normalizedSlug = normalizeSlug(seriesSlug || '');
+      console.log(`🔍 SeriesDetailPage: Looking for series with slug: "${normalizedSlug}"`);
 
       // Get all series from database
       const response = await fetch('http://localhost:3001/api/series');
@@ -40,36 +41,26 @@ const SeriesDetailPage: React.FC = () => {
       if (data.success) {
         console.log('📊 Available series from database:', data.series.length);
         
-        // Debug: Show all series with their generated slugs
-        const seriesWithSlugs = data.series.map((s: any) => {
-          const generatedSlug = createSlug(s.title);
-          console.log(`🔗 Series: "${s.title}" → slug: "${generatedSlug}"`);
-          return {
-            id: s.id,
-            title: s.title,
-            slug: generatedSlug,
-            originalData: s
-          };
-        });
-
-        setDebugInfo({
-          searchSlug: seriesSlug,
-          availableSeries: seriesWithSlugs,
-          totalSeries: data.series.length
-        });
-
-        // Find series by slug - CASE INSENSITIVE
-        const foundSeries = data.series.find((s: any) => {
-          const generatedSlug = createSlug(s.title);
-          const match = generatedSlug.toLowerCase() === seriesSlug?.toLowerCase();
-          console.log(`🔗 Comparing "${generatedSlug}" with "${seriesSlug}" → ${match ? '✅ MATCH' : '❌ NO MATCH'}`);
-          return match;
-        });
+        // FIXED: Use improved slug finding function
+        const foundSeries = findSeriesBySlug(data.series, normalizedSlug);
 
         if (!foundSeries) {
-          console.error(`❌ No series found for slug: "${seriesSlug}"`);
-          console.log('🔍 Available slugs:', seriesWithSlugs.map(s => s.slug));
-          setError(`Series không tồn tại. Slug tìm kiếm: "${seriesSlug}"`);
+          // Create debug info for troubleshooting
+          const seriesWithSlugs = data.series.map((s: any) => ({
+            id: s.id,
+            title: s.title,
+            slug: createSlug(s.title),
+            originalData: s
+          }));
+
+          setDebugInfo({
+            searchSlug: normalizedSlug,
+            availableSeries: seriesWithSlugs,
+            totalSeries: data.series.length
+          });
+
+          console.error(`❌ No series found for slug: "${normalizedSlug}"`);
+          setError(`Series không tồn tại. Slug tìm kiếm: "${normalizedSlug}"`);
           return;
         }
 
